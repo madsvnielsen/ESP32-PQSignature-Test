@@ -1,0 +1,14 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPathWin": "C:\\Users\\mads\\esp\\v5.4\\esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32-bridge.cfg"
+    ],
+    "idf.toolsPathWin": "C:\\Users\\mads\\.espressif",
+    "idf.portWin": "COM4",
+    "idf.flashType": "UART",
+    "idf.port": "/dev/ttyS3",
+    "files.associations": {
+        "esp_task_wdt.h": "c"
+    }
+}
