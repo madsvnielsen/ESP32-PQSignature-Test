@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "address.h"
 #include "context.h"
@@ -49,25 +50,29 @@ size_t crypto_sign_seedbytes(void) {
  */
 int crypto_sign_seed_keypair(uint8_t *pk, uint8_t *sk,
                              const uint8_t *seed) {
-    spx_ctx ctx;
+    spx_ctx *ctx = malloc(sizeof(spx_ctx));
+    if (ctx == NULL) {
+        return -1;
+    }
 
     /* Initialize SK_SEED, SK_PRF and PUB_SEED from seed. */
     memcpy(sk, seed, CRYPTO_SEEDBYTES);
 
     memcpy(pk, sk + 2 * SPX_N, SPX_N);
 
-    memcpy(ctx.pub_seed, pk, SPX_N);
-    memcpy(ctx.sk_seed, sk, SPX_N);
+    memcpy(ctx->pub_seed, pk, SPX_N);
+    memcpy(ctx->sk_seed, sk, SPX_N);
 
     /* This hook allows the hash function instantiation to do whatever
        preparation or computation it needs, based on the public seed. */
-    initialize_hash_function(&ctx);
+    initialize_hash_function(ctx);
 
     /* Compute root node of the top-most subtree. */
-    merkle_gen_root(sk + 3 * SPX_N, &ctx);
+    merkle_gen_root(sk + 3 * SPX_N, ctx);
 
     // cleanup
-    free_hash_function(&ctx);
+    free_hash_function(ctx);
+    free(ctx);
 
     memcpy(pk + SPX_N, sk + 3 * SPX_N, SPX_N);
 
@@ -97,7 +102,10 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
  */
 int crypto_sign_signature(uint8_t *sig, size_t *siglen,
                           const uint8_t *m, size_t mlen, const uint8_t *sk) {
-    spx_ctx ctx;
+    spx_ctx *ctx = malloc(sizeof(spx_ctx));
+    if (ctx == NULL) {
+        return -1;
+    }
 
     const uint8_t *sk_prf = sk + SPX_N;
     const uint8_t *pk = sk + 2 * SPX_N;
@@ -117,15 +125,16 @@ int crypto_sign_signature(uint8_t *sig, size_t *siglen,
         free(root);
         free(wots_addr);
         free(tree_addr);
+        free(ctx);
         return -1;
     }
 
-    memcpy(ctx.sk_seed, sk, SPX_N);
-    memcpy(ctx.pub_seed, pk, SPX_N);
+    memcpy(ctx->sk_seed, sk, SPX_N);
+    memcpy(ctx->pub_seed, pk, SPX_N);
 
     /* This hook allows the hash function instantiation to do whatever
        preparation or computation it needs, based on the public seed. */
-    initialize_hash_function(&ctx);
+    initialize_hash_function(ctx);
 
     set_type(wots_addr, SPX_ADDR_TYPE_WOTS);
     set_type(tree_addr, SPX_ADDR_TYPE_HASHTREE);
@@ -135,17 +144,17 @@ int crypto_sign_signature(uint8_t *sig, size_t *siglen,
        getting a large number of traces when the signer uses the same nodes. */
     randombytes(optrand, SPX_N);
     /* Compute the digest randomization value. */
-    gen_message_random(sig, sk_prf, optrand, m, mlen, &ctx);
+    gen_message_random(sig, sk_prf, optrand, m, mlen, ctx);
 
     /* Derive the message digest and leaf index from R, PK and M. */
-    hash_message(mhash, &tree, &idx_leaf, sig, pk, m, mlen, &ctx);
+    hash_message(mhash, &tree, &idx_leaf, sig, pk, m, mlen, ctx);
     sig += SPX_N;
 
     set_tree_addr(wots_addr, tree);
     set_keypair_addr(wots_addr, idx_leaf);
 
     /* Sign the message hash using FORS. */
-    fors_sign(sig, root, mhash, &ctx, wots_addr);
+    fors_sign(sig, root, mhash, ctx, wots_addr);
     sig += SPX_FORS_BYTES;
 
     for (i = 0; i < SPX_D; i++) {
@@ -155,7 +164,7 @@ int crypto_sign_signature(uint8_t *sig, size_t *siglen,
         copy_subtree_addr(wots_addr, tree_addr);
         set_keypair_addr(wots_addr, idx_leaf);
 
-        merkle_sign(sig, root, &ctx, wots_addr, tree_addr, idx_leaf);
+        merkle_sign(sig, root, ctx, wots_addr, tree_addr, idx_leaf);
         sig += SPX_WOTS_BYTES + SPX_TREE_HEIGHT * SPX_N;
 
         /* Update the indices for the next layer. */
@@ -163,7 +172,8 @@ int crypto_sign_signature(uint8_t *sig, size_t *siglen,
         tree = tree >> SPX_TREE_HEIGHT;
     }
 
-    free_hash_function(&ctx);
+    free_hash_function(ctx);
+    free(ctx);
 
     *siglen = SPX_BYTES;
 
